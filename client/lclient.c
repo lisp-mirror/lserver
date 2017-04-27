@@ -18,6 +18,8 @@
 #define CMD_EXIT 0
 #define CMD_READ_CHAR 1
 #define CMD_READ_LINE 2
+#define CMD_PRINT_STDOUT 3
+#define CMD_PRINT_STDERR 4
 #define MAX_DATA_SIZE 1024
 #define HEADER_SIZE 3
 
@@ -97,30 +99,30 @@ int send_message(int fd, struct message *msg) {
 }
 
 void read_send_line(int fd, struct message *msg) {
-    char *status;
     size_t len;
     bool proceed = true;
     while (proceed) {
-        status = fgets(msg->data, MAX_DATA_SIZE, stdin);
-        len = strlen(msg->data);
-        if (msg->data[len - 1] == '\n') {
-            msg->code = LINE_CODE;
-            msg->data_len = len - 1;
+        if (fgets(msg->data, MAX_DATA_SIZE, stdin)) {
+            //fputs(msg->data);
+            len = strlen(msg->data);
+            if (msg->data[len - 1] == '\n') {
+                msg->code = LINE_CODE;
+                msg->data_len = len - 1;
+                proceed = false;
+            } else {
+                msg->code = LINE_PART_CODE;
+                msg->data_len = len;
+            }
+        } else if (feof(stdin)) {
+            msg->code = EOF_CODE;
+            msg->data_len = 0;
             proceed = false;
-        } else if (status) {
-            msg->code = LINE_PART_CODE;
-            msg->data_len = len;
         } else {
             msg->code = EOF_CODE;
             msg->data_len = 0;
             proceed = false;
         }
         send_message(fd, msg);
-        if (!status) {
-            msg->code = EOF_CODE;
-            msg->data_len = 0;
-            send_message(fd, msg);
-        }
     }
 }
 
@@ -168,21 +170,45 @@ void read_send_utf8(int fd, struct message *msg) {
     send_message(fd, msg);
 }
 
-void read_order(int fd, struct message *msg) {
-    readn(fd, msg->header, 3);
+int read_order(int fd, struct message *msg) {
+    int n = readn(fd, msg->header, HEADER_SIZE);
+    if (n < HEADER_SIZE) return -1;
     msg->code = msg->header[0];
     msg->data_len = (msg->header[1] << 8) + msg->header[2];
-    if (msg->data_len > 0) readn(fd, msg->data, msg->data_len);
+    if (msg->data_len > 0) {
+        if (readn(fd, msg->data, msg->data_len) < msg->data_len) {
+            return -1;
+        }
+    }
+    return HEADER_SIZE + msg->data_len;
+}
+
+void print_stdout(int fd, struct message *msg) {
+    writen(1, msg->data, msg->data_len);
+    // in the future we won't flush immediately
+    fflush(NULL);
+}
+
+void print_stderr(int fd, struct message *msg) {
+    writen(2, msg->data, msg->data_len);
+    // in the future we won't flush immediately
+    fflush(NULL);
 }
 
 void dispatch_order(int fd, struct message *in_msg, struct message *out_msg) {
     if (in_msg->code == CMD_EXIT) exit(0);
     else if (in_msg->code == CMD_READ_LINE) read_send_line(fd, out_msg);
     else if (in_msg->code == CMD_READ_CHAR) read_send_utf8(fd, out_msg);
+    else if (in_msg->code == CMD_PRINT_STDOUT) print_stdout(fd, in_msg);
+    else if (in_msg->code == CMD_PRINT_STDERR) print_stderr(fd, in_msg);
     else exit(1);
 }
 
 int main(int argc, char **argv) {
+    if (argc == 1) {
+        fprintf(stderr, "Socket needed.\n");
+        return EXIT_FAILURE;
+    }
     int sockfd;
     struct sockaddr_un servaddr;
     struct message in_msg, out_msg;
@@ -191,7 +217,7 @@ int main(int argc, char **argv) {
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_LOCAL;
-    strcpy(servaddr.sun_path, "sock");
+    strcpy(servaddr.sun_path, argv[1]);
 
     connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 
@@ -207,8 +233,12 @@ int main(int argc, char **argv) {
     //read_send_utf8(sockfd);
     
 
-    for (;;) {
-        read_order(sockfd, &in_msg);
+    // not working?
+    int n;
+    while (n = read_order(sockfd, &in_msg) >= 0) {
+        //printf("%d\n", n);
         dispatch_order(sockfd, &in_msg, &out_msg);
     }
+    // communication error
+    return -1;
 }
