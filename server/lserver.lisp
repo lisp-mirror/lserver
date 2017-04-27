@@ -37,7 +37,7 @@
                              (2 . line)
                              (3 . line-part)
                              (4 . read-error)
-                             (5 . flushed)))
+                             (5 . ev-key)))
 
 (defclass session-input-stream (trivial-gray-streams:fundamental-input-stream)
   ((saved-char :initform nil :accessor saved-char)
@@ -72,7 +72,8 @@
   (let ((outgoing-buffer (outgoing-buffer stream)))
     (unless (vector-push-utf8 character outgoing-buffer)
       (order stream (command stream) outgoing-buffer)
-      (setf (fill-pointer outgoing-buffer) 0)))
+      (setf (fill-pointer outgoing-buffer) 0)
+      (vector-push-utf8 character outgoing-buffer)))
   character)
 
 (defmethod trivial-gray-streams:stream-write-string ((stream session-output-stream) string &optional (start 0) end)
@@ -82,15 +83,13 @@
 
 (defmethod trivial-gray-streams:stream-force-output ((stream session-output-stream))
   (let ((outgoing-buffer (outgoing-buffer stream)))
-    (order stream (command stream) outgoing-buffer)
-    ;; add flush order
-    (setf (fill-pointer outgoing-buffer) 0)))
+    (when (plusp (length outgoing-buffer))
+      (order stream (command stream) outgoing-buffer)
+      ;; TODO fflush command
+      (setf (fill-pointer outgoing-buffer) 0))))
 
 (defmethod trivial-gray-streams:stream-finish-output ((stream session-output-stream))
-  (let ((outgoing-buffer (outgoing-buffer stream)))
-    (order stream (command stream) outgoing-buffer)
-    ;; add flush order & feedback
-    (setf (fill-pointer outgoing-buffer) 0)))
+  (force-output stream))
 
 (defun make-session-input-stream (stream)
   (make-instance 'session-input-stream :communication-stream stream))
@@ -108,6 +107,9 @@
 
 (defmethod decode-body (type body)
   nil)
+
+(defmethod decode-body ((type (eql 'ev-key)) body)
+  (babel:octets-to-string body))
 
 (defmethod decode-body ((type (eql 'line)) body)
   (babel:octets-to-string body))
@@ -152,7 +154,9 @@
                                    (1 . read-character)
                                    (2 . read-line)
                                    (3 . print-stdout)
-                                   (4 . print-stderr)))
+                                   (4 . print-stderr)
+                                   (5 . order-mode)
+                                   (6 . event-mode)))
 
 (defun order (stream command &optional data)
   (let ((length (if data (length data) 0))
@@ -160,8 +164,8 @@
         (underlying-stream (communication-stream stream)))
     (setf (aref outgoing-header 0) (or (car (rassoc command *order-type-codes*))
                                     (error "FAIL!!!"))
-          (aref outgoing-header 1) (ash length -8)
-          (aref outgoing-header 2) (logand length #b11111111))
+          (aref outgoing-header 1) (logand length #b11111111)
+          (aref outgoing-header 2) (ash length -8))
     (write-sequence outgoing-header underlying-stream)
     (when data
       (write-sequence data underlying-stream))

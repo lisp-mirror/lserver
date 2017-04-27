@@ -1,10 +1,13 @@
+#include <curses.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/un.h>
 
@@ -20,8 +23,11 @@
 #define CMD_READ_LINE 2
 #define CMD_PRINT_STDOUT 3
 #define CMD_PRINT_STDERR 4
+#define CMD_ORDER_MODE 5
+#define CMD_EVENT_MODE 6
 #define MAX_DATA_SIZE 1024
 #define HEADER_SIZE 3
+#define EV_KEY 5
 
 ssize_t                         /* Read "n" bytes from a descriptor. */
 readn(int fd, void *vptr, size_t n)
@@ -68,6 +74,15 @@ ssize_t writen(int fd, const void *vptr, size_t n) {
     }
     return (n);
 }
+
+char *int2bytes(int n, char *bytes) {
+    for (int i = 0; i < sizeof(int); ++i) {
+        bytes[i] = n & 0xFF;
+        n >>= 8;
+    }
+    return bytes;
+}
+
 
 /*
  * Communication: sending and receiving messages.
@@ -174,13 +189,21 @@ int read_order(int fd, struct message *msg) {
     int n = readn(fd, msg->header, HEADER_SIZE);
     if (n < HEADER_SIZE) return -1;
     msg->code = msg->header[0];
-    msg->data_len = (msg->header[1] << 8) + msg->header[2];
+    msg->data_len = (unsigned char) msg->header[1] + (((unsigned char) msg->header[2]) << 8);
     if (msg->data_len > 0) {
         if (readn(fd, msg->data, msg->data_len) < msg->data_len) {
             return -1;
         }
     }
     return HEADER_SIZE + msg->data_len;
+}
+
+int read_event(struct message *msg) {
+    int ch = getch();
+    msg->code = EV_KEY;
+    msg->data_len = sizeof(int);
+    int2bytes(ch, msg->data);
+    return 0;
 }
 
 void print_stdout(int fd, struct message *msg) {
@@ -195,13 +218,67 @@ void print_stderr(int fd, struct message *msg) {
     fflush(NULL);
 }
 
-void dispatch_order(int fd, struct message *in_msg, struct message *out_msg) {
-    if (in_msg->code == CMD_EXIT) exit(0);
-    else if (in_msg->code == CMD_READ_LINE) read_send_line(fd, out_msg);
-    else if (in_msg->code == CMD_READ_CHAR) read_send_utf8(fd, out_msg);
-    else if (in_msg->code == CMD_PRINT_STDOUT) print_stdout(fd, in_msg);
-    else if (in_msg->code == CMD_PRINT_STDERR) print_stderr(fd, in_msg);
-    else exit(1);
+int bytes2int(char *bytes) {
+    int n = 0;
+    for (int i = 0; i < sizeof(int); ++i) {
+        n = (n << 8) + (unsigned char) bytes[i];
+    }
+    return n;
+}
+
+struct bag {
+    int fd;
+    struct message in_msg;
+    struct message out_msg;
+    char mode;
+    int exit_code;
+    fd_set rset;
+};
+
+
+void init_event_mode() {
+    initscr();
+    raw();
+    keypad(stdscr, TRUE);
+    noecho();
+}
+void cleanup_event_mode() {
+    endwin();
+}
+
+void dispatch_order_event(struct bag *b) {
+    char code = b->in_msg.code;
+    if (code == CMD_EXIT) {
+        b->mode = 'q';
+        b->exit_code = bytes2int(b->in_msg.data);
+    }
+    else if (code == CMD_READ_LINE) read_send_line(b->fd, &(b->out_msg));
+    else if (code == CMD_READ_CHAR) read_send_utf8(b->fd, &(b->out_msg));
+    else if (code == CMD_PRINT_STDOUT) print_stdout(b->fd, &(b->in_msg));
+    else if (code == CMD_PRINT_STDERR) print_stderr(b->fd, &(b->in_msg));
+    else if (code == CMD_EVENT_MODE) {
+        if (b->mode != 'e') {
+            b->mode = 'e';
+            init_event_mode();
+        }
+    }
+    else if (code == CMD_ORDER_MODE) {
+        if (b->mode == 'e') cleanup_event_mode();
+        b->mode = 'o';
+    }
+    else if (code == EV_KEY) send_message(b->fd, &(b->in_msg));
+    else exit(EXIT_FAILURE);
+}
+
+void read_order_event(int fd, struct message *msg, fd_set *rset) {
+    FD_SET(0, rset);
+    FD_SET(fd, rset);
+    select(fd, rset, NULL, NULL, NULL);
+    if (FD_ISSET(fd, rset)) {
+        read_order(fd, msg);
+    } else {
+        read_event(msg);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -209,17 +286,17 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Socket needed.\n");
         return EXIT_FAILURE;
     }
-    int sockfd;
+    struct bag b = {0};
+    b.mode = 'o';
     struct sockaddr_un servaddr;
-    struct message in_msg, out_msg;
 
-    sockfd = socket(AF_LOCAL, SOCK_STREAM, 0);
+    b.fd = socket(AF_LOCAL, SOCK_STREAM, 0);
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_LOCAL;
     strcpy(servaddr.sun_path, argv[1]);
 
-    connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
+    connect(b.fd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 
     /*
     set_message(&msg, LINE_PART_CODE, "hello ", 6);
@@ -235,10 +312,11 @@ int main(int argc, char **argv) {
 
     // not working?
     int n;
-    while (n = read_order(sockfd, &in_msg) >= 0) {
-        //printf("%d\n", n);
-        dispatch_order(sockfd, &in_msg, &out_msg);
+    while (b.mode != 'q') {
+        if (b.mode == 'o') read_order(b.fd, &(b.in_msg));
+        else if (b.mode == 'e') read_order_event(b.fd, &(b.in_msg), &(b.rset));
+        dispatch_order_event(&b);
     }
     // communication error
-    return -1;
+    return b.exit_code;
 }
