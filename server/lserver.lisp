@@ -59,9 +59,16 @@
    (incoming-buffer :initform (make-array *output-incoming-buffer-size* :element-type '(unsigned-byte 8) :fill-pointer 0) :reader incoming-buffer)
    (outgoing-buffer :initform (make-array *output-outgoing-buffer-size* :element-type '(unsigned-byte 8) :fill-pointer 0) :reader outgoing-buffer)
    (incoming-header :initform (make-array *incoming-header-size* :element-type '(unsigned-byte 8)) :reader incoming-header)
-   (outgoing-header :initform (make-array *outgoing-header-size* :element-type '(unsigned-byte 8)) :reader outgoing-header)))
+   (outgoing-header :initform (make-array *outgoing-header-size* :element-type '(unsigned-byte 8)) :reader outgoing-header)
+   (line-column :initform 0 :accessor line-column)))
+
+(defmethod trivial-gray-streams:stream-line-column ((stream session-output-stream))
+  (line-column stream))
 
 (defmethod trivial-gray-streams:stream-write-char ((stream session-output-stream) character)
+  (if (char= character #\Newline)
+      (setf (line-column stream) 0)
+      (incf (line-column stream)))
   (let ((outgoing-buffer (outgoing-buffer stream)))
     (unless (vector-push-utf8 character outgoing-buffer)
       (order stream (command stream) outgoing-buffer)
