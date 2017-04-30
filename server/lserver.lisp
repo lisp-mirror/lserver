@@ -97,6 +97,9 @@
             (5 'flush-error)
             (6 'written)
             (7 'write-error)
+            (8 'text)
+            (9 'text-part)
+            (10 'int)
             (otherwise (error 'unknown-message-type-code :code (aref header 0))))
           (+ (ash (aref header 1) 8)
              (aref header 2))))
@@ -132,9 +135,9 @@
 (defun decode-data (message-type raw-data)
   (ecase message-type
     ((eof written) nil)
-    ((line line-part) (babel:octets-to-string raw-data))
+    ((line line-part text text-part) (babel:octets-to-string raw-data))
     (character (decode-utf8-char (aref raw-data 0) (aref raw-data 1) (aref raw-data 2) (aref raw-data 3)))
-    ((read-error write-error flush-error) (decode-int (aref raw-data 0) (aref raw-data 1) (aref raw-data 2) (aref raw-data 3)))))
+    ((read-error write-error flush-error int) (decode-int (aref raw-data 0) (aref raw-data 1) (aref raw-data 2) (aref raw-data 3)))))
 
 (defun read-message (stream)
   (let ((incoming-header (incoming-header stream))
@@ -165,7 +168,8 @@
   (ecase order-type
     (exit (buffer-from-integer data stream))
     ((read-character read-line) (empty-buffer stream))
-    ((print-stdout print-stderr) (length (buffer stream)))))
+    ((print-stdout print-stderr) (length (buffer stream)))
+    ((cwd program-name lisp-args) 0)))
 
 (declaim (inline encode-header))
 (defun encode-header (header order data-length)
@@ -175,8 +179,9 @@
                 (read-line 2)
                 (print-stdout 3)
                 (print-stderr 4)
-                (flush 5)
-                (flush-confirm 6))))
+                (cwd 5)
+                (program-name 6)
+                (lisp-args 7))))
     (setf (aref header 0) code
           (aref header 1) (ldb (byte 8 0) data-length)
           (aref header 2) (ldb (byte 8 8) data-length))))
@@ -190,6 +195,46 @@
     (when (plusp length)
       (write-sequence (buffer stream) underlying-stream))
     (finish-output underlying-stream)))
+
+(defun read-int (stream)
+  (let ((msg (read-message stream)))
+    (case (message-type msg)
+      (int (message-data msg))
+      (otherwise (error 'type-mismatch
+                        :stream stream
+                        :expected 'int
+                        :received (message-type msg))))))
+
+(defun read-text (stream)
+  (loop with parts = nil
+        for msg = (read-message stream)
+        do (case (message-type msg)
+             (text-part (push (message-data msg) parts))
+             ;; it's silly, but I don't feel like consing
+             (text (if parts
+                       (return (strcat (nreverse (cons (message-data msg) parts))))
+                       (return (message-data msg))))
+             (otherwise (error 'type-mismatch
+                               :stream stream
+                               :expected '(or text text-part)
+                               :received (message-type msg))))))
+
+(defun query-cwd (stream)
+  (assuming-unbroken-stream (stream)
+    (order stream 'cwd)
+    (read-text stream)))
+
+(defun query-program-name (stream)
+  (assuming-unbroken-stream (stream)
+    (order stream 'program-name)
+    (read-text stream)))
+
+(defun query-lisp-args (stream)
+  (assuming-unbroken-stream (stream)
+    (order stream 'lisp-args)
+    (let ((argc (read-int stream)))
+      (loop repeat argc collecting (read-text stream)))))
+
 
 ;;;;;;;; INPUT ;;;;;;;;
 

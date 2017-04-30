@@ -20,11 +20,19 @@
 #define FLUSH_ERROR_CODE 5
 #define WRITTEN_CODE 6
 #define WRITE_ERROR_CODE 7
+#define TEXT_CODE 8
+#define TEXT_PART_CODE 9
+#define INT_CODE 10
+
 #define CMD_EXIT 0
 #define CMD_READ_CHAR 1
 #define CMD_READ_LINE 2
 #define CMD_PRINT_STDOUT 3
 #define CMD_PRINT_STDERR 4
+#define CMD_CWD 5
+#define CMD_PROGRAM_NAME 6
+#define CMD_LISP_ARGV 7
+
 #define MAX_DATA_SIZE 1024
 #define HEADER_SIZE 3
 
@@ -169,6 +177,38 @@ int read_send_line(int fd, struct message *msg) {
     return 0;
 }
 
+int send_text(const char *text, int fd, struct message *msg) {
+    size_t nleft = strlen(text);
+    while (nleft > MAX_DATA_SIZE) {
+        msg->code = TEXT_PART_CODE;
+        msg->data_len = MAX_DATA_SIZE;
+        strncpy(msg->data, text, MAX_DATA_SIZE);
+        nleft -= MAX_DATA_SIZE;
+        text += MAX_DATA_SIZE;
+        if (send_message(fd, msg) < 0) return -1;
+    }
+    msg->code = TEXT_CODE;
+    msg->data_len = nleft;
+    strncpy(msg->data, text, nleft);
+    if (send_message(fd, msg) < 0) return -1;
+    return 0;
+}
+
+int send_int(int n, int fd, struct message *msg) {
+    msg->code = INT_CODE;
+    msg->data_len = sizeof(int);
+    int2bytes(n, msg->data);
+    return (send_message(fd, msg) < 0) ? -1 : 0;
+}
+
+int send_lisp_argv(struct bag *b) {
+    if (send_int(b->lisp_argc, b->fd, &(b->out_msg)) < 0) return -1;
+    for(int i = 0; i < b->lisp_argc; ++i) {
+        if (send_text((b->lisp_argv)[i], b->fd, &(b->out_msg)) < 0) return -1;
+    }
+    return 0;
+}
+
 /*
 > 0: ok, bytes read
 0: eof
@@ -270,6 +310,9 @@ int dispatch_order(struct bag *b) {
     if (code == CMD_READ_CHAR) return read_send_utf8(b->fd, &(b->out_msg));
     if (code == CMD_PRINT_STDOUT) return print_to_fd(b, 1);
     if (code == CMD_PRINT_STDERR) return print_to_fd(b, 2);
+    if (code == CMD_CWD) return send_text(b->cwd, b->fd, &(b->out_msg));
+    if (code == CMD_PROGRAM_NAME) return send_text(b->argv0, b->fd, &(b->out_msg));
+    if (code == CMD_LISP_ARGV) return send_lisp_argv(b);
     return -1;
 }
 
