@@ -164,7 +164,7 @@ int read_send_line(int fd, struct message *msg) {
             msg->data_len = 0;
             proceed = false;
         }
-    if (send_message(fd, msg) < 0); return -1;
+    if (send_message(fd, msg) < 0) return -1;
     }
     return 0
 }
