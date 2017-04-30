@@ -334,6 +334,14 @@
 (defmethod trivial-gray-streams:stream-line-column ((stream session-output-stream))
   (line-column stream))
 
+(defmethod trivial-gray-streams:stream-start-line-p ((stream session-output-stream))
+  (zerop (line-column stream)))
+
+(defmethod trivial-gray-streams:stream-fresh-line ((stream session-output-stream))
+  (when (zerop (line-column stream))
+    (terpri stream)
+    t))
+
 (defun write-buffer (stream)
   (let ((buffer (buffer stream)))
     (order stream (command stream) buffer)
