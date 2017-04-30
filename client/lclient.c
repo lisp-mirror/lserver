@@ -166,7 +166,7 @@ int read_send_line(int fd, struct message *msg) {
         }
     if (send_message(fd, msg) < 0) return -1;
     }
-    return 0
+    return 0;
 }
 
 /*
