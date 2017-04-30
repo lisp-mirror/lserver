@@ -131,6 +131,10 @@ struct bag {
     char mode;
     int exit_code;
     fd_set rset;
+    char *argv0;
+    int lisp_argc;
+    char **lisp_argv;
+    char cwd[1024];
 };
 
 
@@ -268,20 +272,58 @@ int dispatch_order(struct bag *b) {
     return -1;
 }
 
+void print_usage(void) {
+    fprintf(stderr, "usage: lclient [-s, --sock SOCKET] [--] [LISP_ARGUMENTS]");
+}
+
 int main(int argc, char **argv) {
-    if (argc == 1) {
+    int i = 1;
+    int lisp_argv_start = argc;
+    char *socket_name = NULL;
+    while (i < argc) {
+        if (strcmp(argv[i], "--") == 0) {
+            lisp_argv_start = i + 1;
+            break;
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage();
+            return EXIT_SUCCESS;
+        } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--socket") == 0) {
+            if (i + 1 == argc || strcmp(argv[i+1], "--") == 0) {
+                fprintf(stderr, "Socket name missing after %s.", argv[i]);
+                print_usage();
+                return EXIT_FAILURE;
+            }
+            socket_name = argv[i + 1];
+            i += 2;
+        } else {
+            fprintf(stderr, "Unknown option: %s.", argv[i]);
+            print_usage();
+            return EXIT_FAILURE;
+        }
+    }
+    if (!socket_name) socket_name = getenv("LSERVER_SOCKET");
+    if (!socket_name) {
         fprintf(stderr, "Socket needed.\n");
         return EXIT_FAILURE;
     }
+        
     struct bag b = {0};
     b.mode = 'o';
+    b.argv0 = argv[0];
+    b.lisp_argc = argc - lisp_argv_start;
+    b.lisp_argv = argv + lisp_argv_start;
+    if(!getcwd(b.cwd, 1024)) {
+        perror("getcwd error");
+        return EXIT_FAILURE;
+    }
+
     struct sockaddr_un servaddr;
 
     b.fd = socket(AF_LOCAL, SOCK_STREAM, 0);
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_LOCAL;
-    strcpy(servaddr.sun_path, argv[1]);
+    strcpy(servaddr.sun_path, socket_name);
 
     connect(b.fd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 
