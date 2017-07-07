@@ -2,8 +2,6 @@
 
 (in-package #:lserver-streams)
 
-;;; "lserver" goes here. Hacks and glory await!
-
 (define-condition communication-error (stream-error) ())
 (define-condition unknown-message-type-code (communication-error)
   ((code :initarg :expected)))
