@@ -1,4 +1,4 @@
-;;;; lserver.lisp
+;;;; lserver-streams.lisp
 
 (in-package #:lserver-streams)
 
