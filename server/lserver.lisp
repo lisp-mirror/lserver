@@ -135,7 +135,7 @@
 (defun decode-data (message-type raw-data)
   (ecase message-type
     ((eof written) nil)
-    ((line line-part text text-part) (babel:octets-to-string raw-data))
+    ((line line-part text text-part) (trivial-utf-8:utf-8-bytes-to-string raw-data))
     (character (decode-utf8-char (aref raw-data 0) (aref raw-data 1) (aref raw-data 2) (aref raw-data 3)))
     ((read-error write-error flush-error int) (decode-int (aref raw-data 0) (aref raw-data 1) (aref raw-data 2) (aref raw-data 3)))))
 
