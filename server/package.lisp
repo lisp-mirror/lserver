@@ -1,5 +1,5 @@
 ;;;; package.lisp
 
-(defpackage #:lserver
+(defpackage #:lserver-streams
   (:use #:cl))
 

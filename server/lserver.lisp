@@ -1,6 +1,6 @@
 ;;;; lserver.lisp
 
-(in-package #:lserver)
+(in-package #:lserver-streams)
 
 ;;; "lserver" goes here. Hacks and glory await!
 
