@@ -1,6 +1,6 @@
 ;;;; package.lisp
 
-(defpackage #:lserver-streams
+(defpackage #:lserver-communication
   (:use #:cl)
   (:export #:make-stream-with-lock
            #:make-session-input-stream
