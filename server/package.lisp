@@ -5,6 +5,15 @@
   (:export #:make-stream-with-lock
            #:make-session-input-stream
            #:make-session-output-stream
+           #:order
+           #:exit
+           #:read-character
+           #:read-line
+           #:print-stdout
+           #:print-stderr
+           #:cwd
+           #:program-name
+           #:lisp-args 
            #:*buffer-size*
            #:*header-size*
            #:*small-buffer-size*
