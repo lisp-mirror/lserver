@@ -7,5 +7,6 @@
   :depends-on ("trivial-gray-streams" "bordeaux-threads" "trivial-utf-8")
   :serial t
   :components ((:file "package")
-               (:file "communication")))
+               (:file "communication")
+               (:file "lserver")))
 
