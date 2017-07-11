@@ -1,9 +1,9 @@
 ;;;; lserver.asd
 
 (asdf:defsystem #:lserver
-  :description "Describe lserver here"
-  :author "Your Name <your.name@example.com>"
-  :license "Specify license here"
+  :description "A Lisp server executing software on demand"
+  :author "Stanislav Kondratyev <kondratjevsk@gmail.com>"
+  :license "CC0"
   :depends-on ("trivial-gray-streams" "bordeaux-threads" "trivial-utf-8")
   :serial t
   :components ((:file "package")
