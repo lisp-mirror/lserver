@@ -336,7 +336,7 @@
   (zerop (line-column stream)))
 
 (defmethod trivial-gray-streams:stream-fresh-line ((stream session-output-stream))
-  (when (zerop (line-column stream))
+  (unless (zerop (line-column stream))
     (terpri stream)
     t))
 
