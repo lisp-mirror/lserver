@@ -1,6 +1,6 @@
-;;;; lserver-streams.lisp
+;;;; communication.lisp
 
-(in-package #:lserver-streams)
+(in-package #:lserver-communication)
 
 (define-condition communication-error (stream-error) ())
 (define-condition unknown-message-type-code (communication-error)
