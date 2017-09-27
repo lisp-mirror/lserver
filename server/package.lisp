@@ -14,6 +14,9 @@
            #:cwd
            #:program-name
            #:lisp-args 
+           #:query-cwd
+           #:query-program-name
+           #:query-lisp-args 
            #:*buffer-size*
            #:*header-size*
            #:*small-buffer-size*
