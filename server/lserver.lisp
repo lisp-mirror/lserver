@@ -48,22 +48,24 @@
            code)
       (unwind-protect
         (prog1
-          (handler-case
-            (let ((*default-pathname-defaults* (pathname (lserver-communication:query-cwd *standard-input*)))
-                  (*arguments* (lserver-communication:query-lisp-args *standard-input*))
-                  (*client-name* (lserver-communication:query-program-name *standard-input*))
-                  (*package* (find-package "LSERVER-CALLER")))
-              (let ((result (funcall *handler*)))
-                (setf code (typecase result
-                             (integer result)
-                             (null 1)
-                             (t 0)))))
-            (lserver-communication:communication-error () (format *terminal-io* "Communication error.~%"))
-            (lserver-communication:client-error () (format *terminal-io* "Client error.~%"))
-            (simple-error (c) (princ c *error-output*))
-            (file-error (c) (format *error-output* "Error with file ~A.~%" (file-error-pathname c)))
-           ; (error () (write-line "ERROR!" *error-output*))
-            )
+          ;;; if we can't pass the errors to the client, something must be wrong with the connection, so we don't care
+          (ignore-errors
+          ;;; the handler-case assumes we are able to tell the client something about the error
+            (handler-case
+              (let ((*default-pathname-defaults* (pathname (lserver-communication:query-cwd *standard-input*)))
+                    (*arguments* (lserver-communication:query-lisp-args *standard-input*))
+                    (*client-name* (lserver-communication:query-program-name *standard-input*))
+                    (*package* (find-package "LSERVER-CALLER")))
+                (let ((result (funcall *handler*)))
+                  (setf code (typecase result
+                               (integer result)
+                               (null 1)
+                               (t 0)))))
+              (lserver-communication:communication-error () (format *terminal-io* "Communication error.~%"))
+              (lserver-communication:client-error () (format *terminal-io* "Client error.~%"))
+              (simple-error (c) (princ c *error-output*))
+              (file-error (c) (format *error-output* "Error with file ~A.~%" (file-error-pathname c)))
+              (error () (write-line "ERROR!" *error-output*))))
           (ignore-errors (finish-output *standard-output*))
           (ignore-errors (finish-output *error-output*))
           (ignore-errors (lserver-communication:order *standard-input* 'lserver-communication:exit (or code -1))))
