@@ -177,14 +177,18 @@ int read_send_line(int fd, struct message *msg) {
     return 0;
 }
 
+// we assume that text is correctly encoded in utf-8
 int send_text(const char *text, int fd, struct message *msg) {
     size_t nleft = strlen(text);
     while (nleft > MAX_DATA_SIZE) {
         msg->code = TEXT_PART_CODE;
-        msg->data_len = MAX_DATA_SIZE;
-        strncpy(msg->data, text, MAX_DATA_SIZE);
-        nleft -= MAX_DATA_SIZE;
-        text += MAX_DATA_SIZE;
+        size_t part_len = MAX_DATA_SIZE;
+        // step back so the next fragment should start with a leading utf-8 byte
+        while (((text[part_len] & 0xc0) == 0x80) && (part_len > 1)) --part_len;
+        msg->data_len = part_len;
+        strncpy(msg->data, text, part_len);
+        nleft -= part_len;
+        text += part_len;
         if (send_message(fd, msg) < 0) return -1;
     }
     msg->code = TEXT_CODE;
