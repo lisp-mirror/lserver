@@ -126,7 +126,7 @@ struct message {
 int send_message(int fd, struct message *msg) {
     msg->header[0] = msg->code;
     msg->header[1] = (msg->data_len >> 8) & 0xFF;
-    msg->header[2] = msg->data_len % 0xFF;
+    msg->header[2] = msg->data_len & 0xFF;
     if (writen(fd, msg->header, HEADER_SIZE) < 0) return -1;
     if (writen(fd, msg->data, msg->data_len) < 0) return -2;
     return 0;
