@@ -129,8 +129,6 @@
     (unless (= (read-sequence incoming-header underlying-stream) *header-size*)
       (error 'corrupt-header :stream stream))
     (multiple-value-bind (type length) (decode-header incoming-header)
-      #+nil (print type #.*terminal-io*)
-      #+nil (print length #.*terminal-io*)
       (setf (fill-pointer buffer) length)
       (when (plusp length)
         (unless (= (read-sequence buffer underlying-stream) length)
@@ -172,7 +170,6 @@
           (aref header 2) (ldb (byte 8 8) data-length))))
 
 (defun order (stream command &optional data)
-  #+nil (format #.*terminal-io* "~A ~A~%" command data)
   (let ((length (encode-data command data stream))
         (outgoing-header (outgoing-header stream))
         (underlying-stream (communication-stream stream)))
@@ -180,9 +177,7 @@
     (write-sequence outgoing-header underlying-stream)
     (when (plusp length)
       (write-sequence (buffer stream) underlying-stream))
-    (finish-output underlying-stream)
-    #+nil (format #.*terminal-io* "bye~%")
-    ))
+    (finish-output underlying-stream)))
 
 (defun read-int (stream)
   (let ((msg (read-message stream)))
