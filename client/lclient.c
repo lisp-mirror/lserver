@@ -149,18 +149,31 @@ struct bag {
 
 int read_send_line(int fd, struct message *msg) {
     size_t len;
+    size_t start = 0;
     bool proceed = true;
     while (proceed) {
-        if (fgets(msg->data, MAX_DATA_SIZE, stdin)) {
+        if (fgets(msg->data + start, MAX_DATA_SIZE - start, stdin)) {
             //fputs(msg->data);
-            len = strlen(msg->data);
-            if (msg->data[len - 1] == '\n') {
+            len = strlen(msg->data + start);
+            if (msg->data[start + len - 1] == '\n') {
                 msg->code = LINE_CODE;
-                msg->data_len = len - 1;
+                msg->data_len = start + len - 1;
                 proceed = false;
             } else {
                 msg->code = LINE_PART_CODE;
-                msg->data_len = len;
+                // If the last byte is not ASCII, we step back ensuring
+                // that the next chunk starts with a starting byte.
+                // For simplicity, we don't analyse the starting byte.
+                msg->data_len = start + len;
+                start = 0;
+                if ((msg->data[msg->data_len - 1] & 0x80) != 0x0) {
+                    --msg->data_len;
+                    start = 1;
+                    while (((msg->data[msg->data_len] & 0xc0) == 0x80) && (msg->data_len > 1)) {
+                        --msg->data_len;
+                        ++start;
+                    }
+                }
             }
         } else if (ferror(stdin)) {
             msg->code = READ_ERROR_CODE;
@@ -173,6 +186,9 @@ int read_send_line(int fd, struct message *msg) {
             proceed = false;
         }
     if (send_message(fd, msg) < 0) return -1;
+    // I guess, memcpy is fine, because in the case of valid utf-8, we step
+    // back at most a few bytes starting near the end of the buffer.
+    if (start > 0) memcpy(msg->data, msg->data + msg->data_len, start);
     }
     return 0;
 }
