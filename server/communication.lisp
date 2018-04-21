@@ -22,60 +22,45 @@
 (defparameter *header-size* 3)
 (defparameter *small-buffer-size* 4)
 
-
-(defstruct (stream-with-lock (:constructor make-stream-with-lock (stream-itself))
-                             (:conc-name swl-))
-  stream-itself
-  (lock (bt:make-lock "stream lock")))
-
 (defstruct message type data)
 
 (defclass session-input-stream (trivial-gray-streams:fundamental-input-stream)
   ((saved-char :initform nil :accessor saved-char)
-   (wrapped-stream)
+   (wrapped-stream :reader communication-stream)
    (eofp :initform nil :accessor eofp)
    (buffer :initform (make-array *buffer-size* :element-type '(unsigned-byte 8) :fill-pointer t) :reader buffer)
    (incoming-header :initform (make-array *header-size* :element-type '(unsigned-byte 8)) :reader incoming-header)
    (outgoing-header :initform (make-array *header-size* :element-type '(unsigned-byte 8)) :reader outgoing-header)))
 
-(defun make-session-input-stream (stream-with-lock)
+(defun make-session-input-stream (stream)
   (let ((s (make-instance 'session-input-stream)))
-    (setf (slot-value s 'wrapped-stream) stream-with-lock)
+    (setf (slot-value s 'wrapped-stream) stream)
     s))
 
 (defclass session-output-stream (trivial-gray-streams:fundamental-output-stream)
   ((command :reader command)
-   (wrapped-stream)
+   (wrapped-stream :reader communication-stream)
    (incoming-buffer :initform (make-array *small-buffer-size* :element-type '(unsigned-byte 8) :fill-pointer 0) :reader incoming-buffer)
    (buffer :initform (make-array *buffer-size* :element-type '(unsigned-byte 8) :fill-pointer 0) :reader buffer)
    (incoming-header-buffer :initform (make-array *header-size* :element-type '(unsigned-byte 8)) :reader incoming-header)
    (outgoing-header-buffer :initform (make-array *header-size* :element-type '(unsigned-byte 8)) :reader outgoing-header)
    (line-column :initform 0 :accessor line-column)))
 
-(defun make-session-output-stream (stream-with-lock command)
+(defun make-session-output-stream (stream command)
   (let ((s (make-instance 'session-output-stream)))
     (setf (slot-value s 'command) command
-          (slot-value s 'wrapped-stream) stream-with-lock)
+          (slot-value s 'wrapped-stream) stream)
     s))
 
-(defun communication-stream (stream)
-  (swl-stream-itself (slot-value stream 'wrapped-stream)))
-
-(defun lock (stream)
-  (swl-lock (slot-value stream 'wrapped-stream)))
-
-(defmacro assuming-unbroken-stream ((stream) &rest body)
+(defmacro with-stream ((stream) &rest body)
   (let ((c (gensym))
-        (s (gensym))
-        (l (gensym)))
-    `(let* ((,s ,stream)
-            (,l (lock ,s)))
-       (bt:with-lock-held (,l)
-         (handler-case
-           (progn ,@body)
-           (end-of-file (,c) (if (eq (stream-error-stream ,c) (communication-stream ,s))
-                                 (error 'broken-pipe :stream ,s)
-                                 (error ,c))))))))
+        (s (gensym)))
+    `(let* ((,s ,stream))
+       (handler-case
+         (progn ,@body)
+         (end-of-file (,c) (if (eq (stream-error-stream ,c) (communication-stream ,s))
+                               (error 'broken-pipe :stream ,s)
+                               (error ,c)))))))
 
 (defun pop-saved-char (stream)
   (prog1
@@ -108,7 +93,7 @@
            (optimize (speed 3) (safety 0) (debug 0) (space 0)))
   (cond ((not (logbitp 7 b0)) (code-char (ldb (byte 7 0) b0)))
         ((= (ldb (byte 3 5) b0) #b110)
-         (code-char (+ (ash (ldb (byte 5 0) b0) 8)
+         (code-char (+ (ash (ldb (byte 5 0) b0) 6)
                        (ldb (byte 6 0) b1))))
         ((= (ldb (byte 4 4) b0) #b1110)
          (code-char (+ (ash (ldb (byte 4 0) b0) 16)
@@ -144,6 +129,8 @@
     (unless (= (read-sequence incoming-header underlying-stream) *header-size*)
       (error 'corrupt-header :stream stream))
     (multiple-value-bind (type length) (decode-header incoming-header)
+      #+nil (print type #.*terminal-io*)
+      #+nil (print length #.*terminal-io*)
       (setf (fill-pointer buffer) length)
       (when (plusp length)
         (unless (= (read-sequence buffer underlying-stream) length)
@@ -185,6 +172,7 @@
           (aref header 2) (ldb (byte 8 8) data-length))))
 
 (defun order (stream command &optional data)
+  #+nil (format #.*terminal-io* "~A ~A~%" command data)
   (let ((length (encode-data command data stream))
         (outgoing-header (outgoing-header stream))
         (underlying-stream (communication-stream stream)))
@@ -192,7 +180,9 @@
     (write-sequence outgoing-header underlying-stream)
     (when (plusp length)
       (write-sequence (buffer stream) underlying-stream))
-    (finish-output underlying-stream)))
+    (finish-output underlying-stream)
+    #+nil (format #.*terminal-io* "bye~%")
+    ))
 
 (defun read-int (stream)
   (let ((msg (read-message stream)))
@@ -218,17 +208,17 @@
                                :received (message-type msg))))))
 
 (defun query-cwd (stream)
-  (assuming-unbroken-stream (stream)
+  (with-stream (stream)
     (order stream 'cwd)
     (read-text stream)))
 
 (defun query-program-name (stream)
-  (assuming-unbroken-stream (stream)
+  (with-stream (stream)
     (order stream 'program-name)
     (read-text stream)))
 
 (defun query-lisp-args (stream)
-  (assuming-unbroken-stream (stream)
+  (with-stream (stream)
     (order stream 'lisp-args)
     (let ((argc (read-int stream)))
       (loop repeat argc collecting (read-text stream)))))
@@ -248,7 +238,7 @@
                         :received (message-type response))))))
 
 (defmethod trivial-gray-streams:stream-read-char ((stream session-input-stream))
-  (assuming-unbroken-stream (stream)
+  (with-stream (stream)
     (or (pop-saved-char stream)
         (get-new-char stream)))) 
 
@@ -256,7 +246,7 @@
   (format nil "~{~A~}" strings))
 
 (defmethod trivial-gray-streams:stream-read-line ((stream session-input-stream))
-  (assuming-unbroken-stream (stream)
+  (with-stream (stream)
     (cond ((eql (saved-char stream) #\Newline)
            (setf (saved-char stream) nil)
            (values "" t))
@@ -360,7 +350,7 @@
       (incf (line-column stream)))
   (let ((buffer (buffer stream)))
     (unless (vector-push-utf8 character buffer)
-      (assuming-unbroken-stream (stream)
+      (with-stream (stream)
         (write-buffer stream))
       (vector-push-utf8 character buffer)))
   character)
@@ -371,9 +361,9 @@
         finally (return string)))
 
 (defmethod trivial-gray-streams:stream-force-output ((stream session-output-stream))
-  (assuming-unbroken-stream (stream)
+  (with-stream (stream)
     (write-buffer stream)))
 
 (defmethod trivial-gray-streams:stream-finish-output ((stream session-output-stream))
-  (assuming-unbroken-stream (stream)
+  (with-stream (stream)
     (write-buffer stream)))
