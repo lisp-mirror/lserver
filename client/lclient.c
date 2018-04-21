@@ -239,11 +239,11 @@ int read_utf8_sequence(int fd, char *buf, int *err) {
     if (c == EOF) goto input_error;
     buf[0] = c;
     char more;
-    if (buf[0] >> 7 == 0) more = 0;
-    else if (buf[0] >> 5 == 6) more = 1;
-    else if (buf[0] >> 4 == 14) more = 2;
+    if ((buf[0] & 0x80) == 0x0) more = 0;
+    else if ((buf[0] & 0xe0) == 0xc0) more = 1;
+    else if ((buf[0] & 0xf0) == 0xe0) more = 2;
     else more = 3;
-    for (int i = 0; i < more; ++i) {
+    for (int i = 1; i <= more; ++i) {
         c = getchar();
         if (c == EOF) goto input_error;
         buf[i] = c;

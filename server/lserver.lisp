@@ -40,7 +40,7 @@
 
 (defun default-connection-handler (socket)
   (lambda ()
-    (let* ((socket-stream (lserver-communication:make-stream-with-lock (sb-bsd-sockets:socket-make-stream socket :input t :output t :element-type '(unsigned-byte 8))))
+    (let* ((socket-stream (sb-bsd-sockets:socket-make-stream socket :input t :output t :element-type '(unsigned-byte 8)))
            (*standard-input* (lserver-communication:make-session-input-stream socket-stream))
            (*standard-output* (lserver-communication:make-session-output-stream socket-stream 'lserver-communication:print-stdout))
            (*error-output* (lserver-communication:make-session-output-stream socket-stream 'lserver-communication:print-stderr))
@@ -65,7 +65,7 @@
               (lserver-communication:client-error () (format *terminal-io* "Client error.~%"))
               (simple-error (c) (princ c *error-output*))
               (file-error (c) (format *error-output* "Error with file ~A.~%" (file-error-pathname c)))
-              (error () (write-line "ERROR!" *error-output*))))
+              (error () (sb-debug:print-backtrace :stream *error-output*))))
           (ignore-errors (finish-output *standard-output*))
           (ignore-errors (finish-output *error-output*))
           (ignore-errors (lserver-communication:order *standard-input* 'lserver-communication:exit (or code -1))))

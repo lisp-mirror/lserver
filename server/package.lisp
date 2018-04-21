@@ -2,8 +2,7 @@
 
 (defpackage #:lserver-communication
   (:use #:cl)
-  (:export #:make-stream-with-lock
-           #:make-session-input-stream
+  (:export #:make-session-input-stream
            #:make-session-output-stream
            #:order
            #:exit
