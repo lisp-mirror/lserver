@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -12,29 +13,11 @@
 
 #include <stdio.h>
 
-#define EOF_CODE 0
-#define CHARACTER_CODE 1
-#define LINE_CODE 2
-#define LINE_PART_CODE 3
-#define READ_ERROR_CODE 4
-#define FLUSH_ERROR_CODE 5
-#define WRITTEN_CODE 6
-#define WRITE_ERROR_CODE 7
-#define TEXT_CODE 8
-#define TEXT_PART_CODE 9
-#define INT_CODE 10
+#include <readline/readline.h>
+#include <readline/history.h>
 
-#define CMD_EXIT 0
-#define CMD_READ_CHAR 1
-#define CMD_READ_LINE 2
-#define CMD_PRINT_STDOUT 3
-#define CMD_PRINT_STDERR 4
-#define CMD_CWD 5
-#define CMD_PROGRAM_NAME 6
-#define CMD_LISP_ARGV 7
-
-#define MAX_DATA_SIZE 1024
-#define HEADER_SIZE 3
+#define MAX_DATA_SIZE 4096
+#define PONG 0
 
 // = 0: OK
 // > 0: EOF
@@ -101,246 +84,258 @@ char *int2bytes(int n, char *bytes) {
     return bytes;
 }
 
-
-/*
- * Communication: sending and receiving messages.
- * A message from the point of view of transfer: header & optional data
- * header: constant length
- * data: variable length <= MAX_DATA_SIZE
- * the header contains the command code (a small integer) and the length of the data
- * The header itself is interesting only in the context of sending/receiving
- * Implementation: struct message = information + allocated buffers.
- * code, data_len & data are `public' members
- * header is a `private' member
- * header is automatically calculated before sending.
- */
-
-struct message {
-    char header[HEADER_SIZE];
+struct session {
+    bool cont;
+    unsigned char cmd;
     char data[MAX_DATA_SIZE];
-    char code;
-    size_t data_len;
-};
-
-// < 0 on error, see errno.
-int send_message(int fd, struct message *msg) {
-    msg->header[0] = msg->code;
-    msg->header[1] = (msg->data_len >> 8) & 0xFF;
-    msg->header[2] = msg->data_len & 0xFF;
-    if (writen(fd, msg->header, HEADER_SIZE) < 0) return -1;
-    if (writen(fd, msg->data, msg->data_len) < 0) return -2;
-    return 0;
-}
-
-struct bag {
+    uint32_t i;
     int fd;
-    struct message in_msg;
-    struct message out_msg;
-    char mode;
-    int exit_code;
     fd_set rset;
+    char* string;
     char *argv0;
     int lisp_argc;
     char **lisp_argv;
-    char cwd[1024];
+    char *line_read;
+    size_t line_read_len;
+    size_t line_read_start;
 };
 
-
-
-int read_send_line(int fd, struct message *msg) {
-    size_t len;
-    size_t start = 0;
-    bool proceed = true;
-    while (proceed) {
-        if (fgets(msg->data + start, MAX_DATA_SIZE - start, stdin)) {
-            //fputs(msg->data);
-            len = strlen(msg->data + start);
-            if (msg->data[start + len - 1] == '\n') {
-                msg->code = LINE_CODE;
-                msg->data_len = start + len - 1;
-                proceed = false;
-            } else {
-                msg->code = LINE_PART_CODE;
-                // If the last byte is not ASCII, we step back ensuring
-                // that the next chunk starts with a starting byte.
-                // For simplicity, we don't analyse the starting byte.
-                msg->data_len = start + len;
-                start = 0;
-                if ((msg->data[msg->data_len - 1] & 0x80) != 0x0) {
-                    --msg->data_len;
-                    start = 1;
-                    while (((msg->data[msg->data_len] & 0xc0) == 0x80) && (msg->data_len > 1)) {
-                        --msg->data_len;
-                        ++start;
-                    }
-                }
-            }
-        } else if (ferror(stdin)) {
-            msg->code = READ_ERROR_CODE;
-            int2bytes(errno, msg->data);
-            msg->data_len = sizeof(int);
-            proceed = false;
-        } else {
-            msg->code = EOF_CODE;
-            msg->data_len = 0;
-            proceed = false;
-        }
-    if (send_message(fd, msg) < 0) return -1;
-    // I guess, memcpy is fine, because in the case of valid utf-8, we step
-    // back at most a few bytes starting near the end of the buffer.
-    if (start > 0) memcpy(msg->data, msg->data + msg->data_len, start);
+int cmd_from_lisp(struct session *s) {
+    if (readn(s->fd, &(s->cmd), sizeof(char)) < 0) {
+        perror("cmd_from_lisp");
+        return EXIT_FAILURE;
     }
     return 0;
 }
 
-// we assume that text is correctly encoded in utf-8
-int send_text(const char *text, int fd, struct message *msg) {
-    size_t nleft = strlen(text);
-    while (nleft > MAX_DATA_SIZE) {
-        msg->code = TEXT_PART_CODE;
-        size_t part_len = MAX_DATA_SIZE;
-        // step back so the next fragment should start with a leading utf-8 byte
-        while (((text[part_len] & 0xc0) == 0x80) && (part_len > 1)) --part_len;
-        msg->data_len = part_len;
-        strncpy(msg->data, text, part_len);
-        nleft -= part_len;
-        text += part_len;
-        if (send_message(fd, msg) < 0) return -1;
-    }
-    msg->code = TEXT_CODE;
-    msg->data_len = nleft;
-    strncpy(msg->data, text, nleft);
-    if (send_message(fd, msg) < 0) return -1;
-    return 0;
-}
-
-int send_int(int n, int fd, struct message *msg) {
-    msg->code = INT_CODE;
-    msg->data_len = sizeof(int);
-    int2bytes(n, msg->data);
-    return (send_message(fd, msg) < 0) ? -1 : 0;
-}
-
-int send_lisp_argv(struct bag *b) {
-    if (send_int(b->lisp_argc, b->fd, &(b->out_msg)) < 0) return -1;
-    for(int i = 0; i < b->lisp_argc; ++i) {
-        if (send_text((b->lisp_argv)[i], b->fd, &(b->out_msg)) < 0) return -1;
+int dump_to_stream(struct session *s, FILE *stream, char *perror_string) {
+    size_t n = s->i;
+    if (fwrite(s->data, 1, n, stream) != n) {
+        perror(perror_string);
+        return EXIT_FAILURE;
     }
     return 0;
 }
 
-/*
-> 0: ok, bytes read
-0: eof
--1: error
-*/
-int read_utf8_sequence(int fd, char *buf, int *err) {
-    int c = getchar();
-    if (c == EOF) goto input_error;
-    buf[0] = c;
-    char more;
-    if ((buf[0] & 0x80) == 0x0) more = 0;
-    else if ((buf[0] & 0xe0) == 0xc0) more = 1;
-    else if ((buf[0] & 0xf0) == 0xe0) more = 2;
-    else more = 3;
-    for (int i = 1; i <= more; ++i) {
-        c = getchar();
-        if (c == EOF) goto input_error;
-        buf[i] = c;
-    }
-    return more + 1;
-input_error:
-    *err = errno;
-    return ferror(stdin) ? -1 : 0;
+int dump_to_stdout(struct session *s) {
+    return dump_to_stream(s, stdout, "dump_to_stdout");
 }
 
-int read_send_utf8(int fd, struct message *msg) {
-    int err;
-    int n = read_utf8_sequence(fd, msg->data, &err);
-    if (n > 0) {
-        msg->code = CHARACTER_CODE;
-        msg->data_len = n;
-    } else if (n == 0) {
-        msg->code = EOF_CODE;
-        msg->data_len = 0;
+int dump_to_stderr(struct session *s) {
+    return dump_to_stream(s, stderr, "dump_to_stderr");
+}
+
+int flush_stream(FILE *stream, char *perror_string) {
+    if (fflush(stream)) {
+        perror(perror_string);
+        return EXIT_FAILURE;
+    }
+    return 0;
+}
+
+int flush_stdout(struct session *s) {
+    return flush_stream(stdout, "flush_stdout");
+}
+
+int flush_stderr(struct session *s) {
+    return flush_stream(stderr, "flush_stderr");
+}
+
+int fread_from_stdin(struct session *s) {
+    s->i = (uint32_t) fread(s->data, 1, MAX_DATA_SIZE, stdin);
+    if (s->i < MAX_DATA_SIZE && ferror(stdin)) {
+        perror("fread_from_stdin");
+        return EXIT_FAILURE;
+    }
+    return 0;
+}
+
+int fgets_from_stdin(struct session *s) {
+    if (fgets(s->data, MAX_DATA_SIZE, stdin)) {
+        s->i = (uint32_t) strlen(s->data);
+    } else if(ferror(stdin)) {
+        perror("fgets_from_stdin");
+        return EXIT_FAILURE;
     } else {
-        msg->code = READ_ERROR_CODE;
-        int2bytes(err, msg->data);
-        msg->data_len = sizeof(int);
+        s->i = 0;
     }
-    return send_message(fd, msg);
+    return 0;
 }
 
-/*
- * Never mind errno, if we can't read an order there's nothing we can do on our
- * own; return a negative value & die asap.
- */
-int read_order(int fd, struct message *msg) {
-    int n = readn(fd, msg->header, HEADER_SIZE);
-    if (n < HEADER_SIZE) return -1;
-    msg->code = msg->header[0];
-    msg->data_len = (unsigned char) msg->header[1] + (((unsigned char) msg->header[2]) << 8);
-    if (msg->data_len > 0) {
-        if (readn(fd, msg->data, msg->data_len) < msg->data_len) {
-            return -2;
+int readline_from_stdin(struct session *s) {
+    if (s->line_read_start >= s->line_read_len) {
+        free(s->line_read);
+        s->line_read = readline("");
+        if (s->line_read && *(s->line_read)) add_history(s->line_read);
+        s->line_read_start = 0;
+        s->line_read_len = (s->line_read) ? strlen(s->line_read) : 0;
+        if (s->line_read) {
+            *(s->line_read + s->line_read_len) = '\n';
+            ++(s->line_read_len);
         }
     }
-    return HEADER_SIZE + msg->data_len;
-}
-
-int print_to_fd(struct bag *b, int output_fd) {
-    int err;
-    if (b->in_msg.data_len > 0) {
-        if (writen(output_fd, b->in_msg.data, b->in_msg.data_len) < 0) {
-            err = errno;
-            b->out_msg.code = WRITE_ERROR_CODE;
-            int2bytes(err, b->out_msg.data);
-            b->out_msg.data_len = sizeof(int);
-            return send_message(b->fd, &(b->out_msg));
-        }
-    }
-    if (fflush(NULL) == EOF) {
-        err = errno;
-        b->out_msg.code = FLUSH_ERROR_CODE;
-        int2bytes(err, b->out_msg.data);
-        b->out_msg.data_len = sizeof(int);
-        return send_message(b->fd, &(b->out_msg));
-    }
-    b->out_msg.code = WRITTEN_CODE;
-    b->out_msg.data_len = 0;
-    return send_message(b->fd, &(b->out_msg));
-}
-
-int bytes2int(char *bytes) {
-    int n = 0;
-    for (int i = 0; i < sizeof(int); ++i) {
-        n = (n << 8) + (unsigned char) bytes[i];
-    }
-    return n;
-}
-
-int dispatch_order(struct bag *b) {
-    char code = b->in_msg.code;
-    if (code == CMD_EXIT) {
-        b->mode = 'q';
-        b->exit_code = bytes2int(b->in_msg.data);
+    if (s->line_read_start >= s->line_read_len) {
+        s->i = 0;
         return 0;
     }
-    if (code == CMD_READ_LINE) return read_send_line(b->fd, &(b->out_msg));
-    if (code == CMD_READ_CHAR) return read_send_utf8(b->fd, &(b->out_msg));
-    if (code == CMD_PRINT_STDOUT) return print_to_fd(b, 1);
-    if (code == CMD_PRINT_STDERR) return print_to_fd(b, 2);
-    if (code == CMD_CWD) return send_text(b->cwd, b->fd, &(b->out_msg));
-    if (code == CMD_PROGRAM_NAME) return send_text(b->argv0, b->fd, &(b->out_msg));
-    if (code == CMD_LISP_ARGV) return send_lisp_argv(b);
-    return -1;
+    if (s->line_read_len - s->line_read_start <= MAX_DATA_SIZE) {
+        memcpy(s->data, s->line_read + s->line_read_start, s->line_read_len - s->line_read_start);
+        s->i = s->line_read_len - s->line_read_start;
+        s->line_read_start = s->line_read_len;
+        return 0;
+    }
+    memcpy(s->data, s->line_read + s->line_read_start, MAX_DATA_SIZE);
+    s->i = MAX_DATA_SIZE;
+    s->line_read_start += MAX_DATA_SIZE;
+    return 0;
+}
+
+// should perror be called by the caller instead?
+int int_to_lisp(struct session *s) {
+    uint32_t nw = htonl(s->i);
+    if (writen(s->fd, &nw, sizeof(uint32_t)) < 0) {
+        perror("int_to_lisp");
+        return EXIT_FAILURE;
+    }
+    return 0;
+}
+
+int data_to_lisp (struct session *s) {
+    if (int_to_lisp(s)) return EXIT_FAILURE; // send_int may call perror
+    if (s->i > 0) {
+        if (writen(s->fd, s->data, (size_t) s->i) < 0) {
+            perror("data_to_lisp");
+            return EXIT_FAILURE;
+        }
+    }
+    return 0;
+}
+
+int string_to_lisp (struct session *s) {
+    size_t len = strlen(s->string);
+    s->i = (uint32_t) len;
+    if (int_to_lisp(s)) return EXIT_FAILURE; // send_int may call perror
+    if (len > 0) {
+        if (writen(s->fd, s->string, len) < 0) {
+            perror("string_to_lisp");
+            return EXIT_FAILURE;
+        }
+    }
+    return 0;
+}
+
+int save_lisp_argc (struct session *s) {
+    s->i = (uint32_t) s->lisp_argc;
+    return 0;
+}
+
+int save_lisp_arg (struct session *s) {
+    if (s->i >= s->lisp_argc) {
+        perror("save_lisp_arg");
+        return EXIT_FAILURE;
+    }
+    s->string = s->lisp_argv[s->i];
+    return 0;
+}
+
+int save_arg0 (struct session *s) {
+    s->string = s->argv0;
+    return 0;
+}
+
+int save_env (struct session *s) {
+    s->string = getenv(s->data);
+    s->i = (s->string != NULL);
+    return 0;
+}
+
+int save_cwd (struct session *s) {
+    if(!getcwd(s->data, MAX_DATA_SIZE)) {
+        perror("getcwd error");
+        return EXIT_FAILURE;
+    }
+    s->string = s->data;
+    return 0;
+}
+
+int save_isatty (struct session *s) {
+    s->i = isatty(0);
+    return 0;
+}
+
+int quit(struct session *s) {
+    s->cont = false;
+    return 0;
+}
+
+
+int pong(struct session *s) {
+    s->i = PONG;
+    return int_to_lisp(s);
+}
+
+int int_from_lisp(struct session *s) {
+    uint32_t n = 0;
+    if (readn(s->fd, &n, sizeof(uint32_t)) < 0) {
+        perror("int_from_lisp");
+        return EXIT_FAILURE;
+    }
+    s->i = ntohl(n);
+    return 0;
+}
+
+int data_from_lisp(struct session *s) {
+    if (int_from_lisp(s)) {
+        perror("data_from_lisp");
+        return EXIT_FAILURE;
+    }
+    if (s->i >= MAX_DATA_SIZE) return EXIT_FAILURE;
+    if (readn(s->fd, s->data, (size_t) s->i) < 0) {
+        perror("data_from_lisp");
+        return EXIT_FAILURE;
+    }
+    return 0;
+}
+
+typedef int (*dispatch_fun_t)(struct session *);
+
+#define NUM_COMMANDS 18
+
+dispatch_fun_t dispatch_functions[NUM_COMMANDS];
+
+void set_dispatch_functions(dispatch_fun_t read_fn) {
+    dispatch_functions[0] = quit;
+    dispatch_functions[1] = pong;
+    dispatch_functions[2] = int_from_lisp;
+    dispatch_functions[3] = data_from_lisp;
+    dispatch_functions[4] = int_to_lisp;
+    dispatch_functions[5] = data_to_lisp;
+    dispatch_functions[6] = read_fn;
+    dispatch_functions[7] = dump_to_stdout;
+    dispatch_functions[8] = flush_stdout;
+    dispatch_functions[9] = dump_to_stderr;
+    dispatch_functions[10] = flush_stderr;
+    dispatch_functions[11] = string_to_lisp;
+    dispatch_functions[12] = save_arg0;
+    dispatch_functions[13] = save_lisp_argc;
+    dispatch_functions[14] = save_lisp_arg;
+    dispatch_functions[15] = save_env;
+    dispatch_functions[16] = save_cwd;
+    dispatch_functions[17] = save_isatty;
 }
 
 void print_usage(void) {
     fprintf(stderr, "usage: lclient [-s, --sock SOCKET] [--] [LISP_ARGUMENTS]");
 }
 
+void init_readline() {
+    rl_bind_key ('\t', rl_insert);
+}
+
 int main(int argc, char **argv) {
+    //set_dispatch_functions(isatty(0) ? fgets_from_stdin : fread_from_stdin);
+    init_readline();
+    set_dispatch_functions(isatty(0) ? readline_from_stdin : fread_from_stdin);
     int i = 1;
     int lisp_argv_start = argc;
     char *socket_name = NULL;
@@ -371,30 +366,31 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
         
-    struct bag b = {0};
-    b.mode = 'o';
-    b.argv0 = argv[0];
-    b.lisp_argc = argc - lisp_argv_start;
-    b.lisp_argv = argv + lisp_argv_start;
-    if(!getcwd(b.cwd, 1024)) {
-        perror("getcwd error");
-        return EXIT_FAILURE;
-    }
+    struct session s = {0};
+    s.cont = 1;
+    s.argv0 = argv[0];
+    s.lisp_argc = argc - lisp_argv_start;
+    s.lisp_argv = argv + lisp_argv_start;
 
     struct sockaddr_un servaddr;
 
-    b.fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+    s.fd = socket(AF_LOCAL, SOCK_STREAM, 0);
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_LOCAL;
     strcpy(servaddr.sun_path, socket_name);
 
-    connect(b.fd, (struct sockaddr *) &servaddr, sizeof(servaddr));
+    connect(s.fd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 
-    while (b.mode != 'q') {
-        if (read_order(b.fd, &(b.in_msg)) < 0) return EXIT_FAILURE;
-        if (dispatch_order(&b) < 0) return EXIT_FAILURE;
+    while (s.cont) {
+        if (cmd_from_lisp(&s)) return EXIT_FAILURE;
+        if (s.cmd >= NUM_COMMANDS || s.cmd < 0) {
+            fprintf(stderr, "Unknown command code %d.\n", (int) s.cmd);
+            return EXIT_FAILURE;
+        }
+        //printf("cmd %d\n", s.cmd);
+        if ((*dispatch_functions[s.cmd])(&s)) return EXIT_FAILURE;
     }
 
-    return b.exit_code;
+    return (int) s.i;
 }

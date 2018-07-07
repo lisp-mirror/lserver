@@ -1,8 +1,6 @@
 ;;;; lserver.lisp
 
-(defpackage #:lserver (:use #:cl))
-
-(in-package #:lserver)
+(in-package #:lserver-impl)
 
 (defclass lserver ()
   ((socket :reader socket)
@@ -27,49 +25,73 @@
     (setf (slot-value server 'socket) (setup-socket (socket-address server))))
   server)
 
-;;; TODO thread pool
 (defun start-server (server)
   (catch 'stop-server
          (loop for sock = (sb-bsd-sockets:socket-accept (socket server))
                do (bt:make-thread (default-connection-handler sock) :name "lserver worker"))))
 
-(defpackage "LSERVER-CALLER" (:use #:cl))
-
 (defvar *arguments* nil)
 (defvar *client-name* "")
 
+(defparameter *handler* (lambda () (standard-handler *arguments*)))
+
 (defun default-connection-handler (socket)
   (lambda ()
-    (let* ((socket-stream (sb-bsd-sockets:socket-make-stream socket :input t :output t :element-type '(unsigned-byte 8)))
-           (*standard-input* (lserver-communication:make-session-input-stream socket-stream))
-           (*standard-output* (lserver-communication:make-session-output-stream socket-stream 'lserver-communication:print-stdout))
-           (*error-output* (lserver-communication:make-session-output-stream socket-stream 'lserver-communication:print-stderr))
-           (*query-io* (make-two-way-stream (lserver-communication:make-session-input-stream socket-stream) (lserver-communication:make-session-output-stream socket-stream 'lserver-communication:print-stderr)))
-           code)
-      (unwind-protect
-        (prog1
-          ;;; if we can't pass the errors to the client, something must be wrong with the connection, so we don't care
-          (ignore-errors
-          ;;; the handler-case assumes we are able to tell the client something about the error
-            (handler-case
-              (let ((*default-pathname-defaults* (pathname (lserver-communication:query-cwd *standard-input*)))
-                    (*arguments* (lserver-communication:query-lisp-args *standard-input*))
-                    (*client-name* (lserver-communication:query-program-name *standard-input*))
-                    (*package* (find-package "LSERVER-CALLER")))
+    (let ((*interpreter-stream* (sb-bsd-sockets:socket-make-stream socket
+                                                                   :input t
+                                                                   :output t
+                                                                   :element-type '(unsigned-byte 8)
+                                                                   :auto-close t)))
+      (let ((*standard-input* (flexi-streams:make-flexi-stream (make-server-binary-input-stream *interpreter-stream*)
+                                                               :external-format :utf-8))
+            (*standard-output*
+              (flexi-streams:make-flexi-stream
+                (make-server-binary-output-stream *interpreter-stream* 
+                                                  :stdout
+                                                  (if (isatty)
+                                                      :line-buffered
+                                                      :fully-buffered))
+                :external-format :utf-8))
+            (*error-output*
+              (flexi-streams:make-flexi-stream
+                (make-server-binary-output-stream *interpreter-stream* 
+                                                  :stderr
+                                                  :unbuffered)
+                :external-format :utf-8))
+            (*query-io*
+              (make-two-way-stream
+                (flexi-streams:make-flexi-stream (make-server-binary-input-stream *interpreter-stream*)
+                                                 :external-format :utf-8)
+                (flexi-streams:make-flexi-stream
+                  (make-server-binary-output-stream *interpreter-stream* 
+                                                    :stderr
+                                                    :line-buffered)
+                  :external-format :utf-8)))
+            (*default-pathname-defaults* (pathname (getcwd)))
+            (*arguments* (argv))
+            (*client-name* (argv0))
+            (*package* (find-package "LSERVER"))
+            code)
+        (unwind-protect
+          (progn
+            ;;; if we can't pass the errors to the client, something must be wrong with the connection, so we don't care
+            (ignore-errors
+              ;;; the handler-case assumes we are able to tell the client something about the error
+              (handler-case
                 (let ((result (funcall *handler*)))
                   (setf code (typecase result
                                (integer result)
                                (null 1)
-                               (t 0)))))
-              (lserver-communication:communication-error () (format *terminal-io* "Communication error.~%"))
-              (lserver-communication:client-error () (format *terminal-io* "Client error.~%"))
-              (simple-error (c) (princ c *error-output*))
-              (file-error (c) (format *error-output* "Error with file ~A.~%" (file-error-pathname c)))
-              (error () (sb-debug:print-backtrace :stream *error-output*))))
-          (ignore-errors (finish-output *standard-output*))
-          (ignore-errors (finish-output *error-output*))
-          (ignore-errors (lserver-communication:order *standard-input* 'lserver-communication:exit (or code -1))))
-        (ignore-errors (sb-bsd-sockets:socket-close socket))))))
+                               (t 0))))
+                (simple-error (c) (princ c *error-output*))
+                (file-error (c) (format *error-output* "Error with file ~A.~%" (file-error-pathname c)))
+                (error () (sb-debug:print-backtrace :stream *error-output*))))
+            (ignore-errors (finish-output *standard-output*))
+            (ignore-errors (finish-output *error-output*))
+            (ignore-errors (finish-output *query-io*))
+            (ignore-errors (quit-interpreter (or code 255))))
+          (ignore-errors (close *interpreter-stream*))
+          (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
 
 ;;; TODO permissions
 ;;; TODO treat socket directories & socket names separately
@@ -127,12 +149,12 @@
             (error "Unknown command: ~A.~%" command-name)))
       (error "Command missing.~%")))
 
-(defparameter *handler* (lambda () (standard-handler *arguments*)))
 
 (defvar *server*)
 
-(defun awesome (&optional background)
-  (setf *server* (setup-server (make-server)))
+(defun awesome (&key (background t) socket-address (rc-file *rc-file*))
+  (setf *server* (let ((*rc-file* rc-file))
+                   (setup-server (make-server socket-address))))
   (if background
       (bt:make-thread (lambda () (start-server *server*)) :name "lserver main thread")
       (start-server *server*)))
