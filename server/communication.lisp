@@ -166,7 +166,7 @@ I doubt much can be gained by not flushing the commands right away, so we do tha
 
 (defun getcwd ()
   (save-cwd-c)
-  (get-string))
+  (uiop:ensure-directory-pathname (get-string)))
 
 (defun isatty ()
   (save-isatty-c)
