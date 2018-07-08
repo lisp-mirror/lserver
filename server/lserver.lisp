@@ -20,7 +20,7 @@
 
 ;;; TODO reset the socket?
 (defun setup-server (server)
-  (load *rc-file* :if-does-not-exist nil)
+  (load *rc-file* :if-does-not-exist (warn "Initialization file ~A does not exist." *rc-file*))
   (unless (slot-boundp server 'socket)
     (setf (slot-value server 'socket) (setup-socket (socket-address server))))
   server)
