@@ -15,9 +15,12 @@
  *
  */
 
+#define _POSIX_C_SOURCE 1
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -115,6 +118,9 @@ struct session {
     char *line_read;
     size_t line_read_len;
     size_t line_read_start;
+    char readline_prompt[256];
+    size_t readline_prompt_len;
+    bool readline_prompt_fail;
 };
 
 int cmd_from_lisp(struct session *s) {
@@ -127,6 +133,28 @@ int cmd_from_lisp(struct session *s) {
 
 int dump_to_stream(struct session *s, FILE *stream, char *perror_string) {
     size_t n = s->i;
+    if (isatty(STDIN_FILENO) && isatty(fileno(stream))) {
+        char *pos = s->data + n - 1;
+        size_t len = 0;
+        for (; pos >= s->data; --pos, ++len) {
+            if (*pos == '\n') {
+                ++pos;
+                s->readline_prompt_fail = false;
+                break;
+            }
+        }
+        if (pos < s->data) pos = s->data;
+        if (s->readline_prompt_len + len < 256) {
+            memcpy(s->readline_prompt + s->readline_prompt_len, pos, len);
+            s->readline_prompt_len += len;
+            *(s->readline_prompt + s->readline_prompt_len) = 0;
+        } else {
+            // pray such a long string is not going to be used as prompt
+            *(s->readline_prompt) = 0;
+            s->readline_prompt_len = 0;
+            s->readline_prompt_fail = true;
+        }
+    }
     if (fwrite(s->data, 1, n, stream) != n) {
         perror(perror_string);
         return EXIT_FAILURE;
@@ -182,7 +210,17 @@ int fgets_from_stdin(struct session *s) {
 int readline_from_stdin(struct session *s) {
     if (s->line_read_start >= s->line_read_len) {
         free(s->line_read);
-        s->line_read = readline("");
+        if (s->readline_prompt_fail) {
+            s->line_read = readline("");
+        } else {
+            // kill the line, hopefully it's in the prefix
+            printf("\33[2K\r");
+            s->line_read = readline(s->readline_prompt);
+        }
+        // readline ends with a newline, so reset the prompt
+        *(s->readline_prompt) = 0;
+        s->readline_prompt_len = 0;
+        s->readline_prompt_fail = false;
         if (s->line_read && *(s->line_read)) add_history(s->line_read);
         s->line_read_start = 0;
         s->line_read_len = (s->line_read) ? strlen(s->line_read) : 0;
