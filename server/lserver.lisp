@@ -22,10 +22,8 @@
 (defmethod socket-address ((server lserver))
   (namestring (merge-pathnames  (socket-file server) (merge-pathnames #p"tmp/" (server-home server)))))
 
-(defun make-server (&key (home (or (uiop:getenv "LSERVER_HOME")
-                                   *lserver-home*))
-                         (socket-file (or (uiop:getenv "LSERVER_SOCKET")
-                                          *default-socket*)))
+(defun make-server (&key (home *lserver-home*)
+                         (socket-file *default-socket*))
   (make-instance 'lserver :home home :socket-file socket-file))
 
 (defun server-shutdown (server)
@@ -168,8 +166,11 @@
 
 (defvar *server*)
 
-(defun run-server (&key background (socket-file *default-socket*) (home *lserver-home*))
+(defun run-server (&key background
+                        (socket-file (or (uiop:getenv "LSERVER_SOCKET") *default-socket*))
+                        (home (or (uiop:getenv "LSERVER_HOME") *lserver-home*)))
   (setf *server* (setup-server (make-server :home home :socket-file socket-file)))
+  (format t "Starting listening on ~A.~%" (socket-address *server*))
   (if background
       (bt:make-thread (lambda () (start-server *server*)) :name "lserver main thread")
       (start-server *server*)))
