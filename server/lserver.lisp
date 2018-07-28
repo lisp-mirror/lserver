@@ -48,8 +48,10 @@
 
 (defun start-server (server)
   (catch 'stop-server
-         (loop for sock = (sb-bsd-sockets:socket-accept (socket server))
-               do (bt:make-thread (default-connection-handler sock) :name "lserver worker"))))
+         (unwind-protect
+           (loop for sock = (sb-bsd-sockets:socket-accept (socket server))
+                 do (bt:make-thread (default-connection-handler sock) :name "lserver worker"))
+           (delete-file (socket-address server)))))
 
 (defvar *arguments* nil)
 (defvar *client-name* "")
