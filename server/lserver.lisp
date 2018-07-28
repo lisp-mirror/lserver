@@ -4,8 +4,7 @@
 
 (defparameter *lserver-home* (merge-pathnames #p".lserver/" (user-homedir-pathname)))
 (defparameter *default-socket* #p"default")
-(defparameter *directories* '(#p"tmp/"
-                              #p"commands/"))
+(defparameter *directories* '(#p"tmp/"))
 
 (defclass lserver ()
   ((home :reader server-home :initarg :home :initform *lserver-home*)
