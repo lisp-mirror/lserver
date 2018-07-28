@@ -63,9 +63,7 @@ The system definition is found in the `server` directory.
 
 ### Usage
 
-The basic syntax is
-
-   $ lcli [server-arguments] [command] [command-arguments]
+    $ lcli [server-arguments] [command] [command-arguments]
 
 * `server-arguments` are arguments for the server.
 * `command` is the name of the piece of software to run.
