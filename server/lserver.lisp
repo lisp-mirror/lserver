@@ -2,27 +2,45 @@
 
 (in-package #:lserver-impl)
 
-(defclass lserver ()
-  ((socket :reader socket)
-   (socket-address :reader socket-address :initarg :socket-address :initform (infer-socket-address))))
+(defparameter *lserver-home* (merge-pathnames #p".lserver/" (user-homedir-pathname)))
+(defparameter *default-socket* #p"default")
+(defparameter *directories* '(#p"tmp/"
+                              #p"commands/"))
 
-(defun make-server (&optional socket-address)
-  (let* ((socket-address (infer-socket-address socket-address))
-         (server (make-instance 'lserver :socket-address socket-address)))
-    server))
+(defclass lserver ()
+  ((home :reader server-home :initarg :home :initform *lserver-home*)
+   (socket :reader socket)
+   (socket-file :reader socket-file :initarg :socket-file :initform *default-socket*)))
+
+(defgeneric rc-file (server))
+
+(defmethod rc-file ((server lserver))
+  (merge-pathnames #p"lserverrc.lisp" (server-home server)))
+
+(defgeneric socket-address (server))
+
+(defmethod socket-address ((server lserver))
+  (namestring (merge-pathnames  (socket-file server) (merge-pathnames #p"tmp/" (server-home server)))))
+
+(defun make-server (&key (home *lserver-home*) (socket-file *default-socket*))
+  (make-instance 'lserver :home home :socket-file socket-file))
 
 (defun server-shutdown (server)
   (let ((socket (socket server)))
     (sb-bsd-sockets:socket-shutdown socket :direction :io)
     (sb-bsd-sockets:socket-close socket)))
 
-(defparameter *rc-file* (merge-pathnames ".lserverrc" (user-homedir-pathname)))
+(defun setup-directories (home)
+  (dolist (dir *directories*)
+    (ensure-directories-exist (merge-pathnames dir home))))
 
 ;;; TODO reset the socket?
 (defun setup-server (server)
-  (if (uiop:file-exists-p *rc-file*)
-      (load *rc-file*)
-      (warn "Initialization file ~A does not exist." *rc-file*))
+  (setup-directories (server-home server))
+  (let ((rc-file (rc-file server)))
+    (if (uiop:file-exists-p rc-file)
+        (load rc-file)
+        (warn "Initialization file ~A does not exist." rc-file)))
   (unless (slot-boundp server 'socket)
     (setf (slot-value server 'socket) (setup-socket (socket-address server))))
   server)
@@ -105,13 +123,6 @@
     (sb-bsd-sockets:socket-listen socket 5)
     socket))
 
-(defparameter *default-socket* (namestring (merge-pathnames ".lserver/default" (user-homedir-pathname))))
-
-(defun infer-socket-address (&optional name)
-  (or name
-      (uiop:getenv "LSERVER_SOCKET")
-      *default-socket*))
-
 (defstruct command name function description)
 
 (defstruct command-set
@@ -154,9 +165,8 @@
 
 (defvar *server*)
 
-(defun awesome (&key (background t) socket-address (rc-file *rc-file*))
-  (setf *server* (let ((*rc-file* rc-file))
-                   (setup-server (make-server socket-address))))
+(defun awesome (&key (background t) (socket-file *default-socket*) (home *lserver-home*))
+  (setf *server* (setup-server (make-server :home home :socket-file socket-file)))
   (if background
       (bt:make-thread (lambda () (start-server *server*)) :name "lserver main thread")
       (start-server *server*)))
