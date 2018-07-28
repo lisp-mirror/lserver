@@ -13,11 +13,11 @@
 
 1. Download the tarball and unpack it under `~/quicklisp/local-projects`.
 
-    $ cd ~/quicklisp/local-projects; wget https://notabug.org/quasus/lserver/archive/master.tar.gz && tar xvf master.tar.gz
+        $ cd ~/quicklisp/local-projects; wget https://notabug.org/quasus/lserver/archive/master.tar.gz && tar xvf master.tar.gz
 
 2. In the `server` directory, run `make`.
 
-    $ cd lserver/server; make
+        $ cd lserver/server; make
 
 3. Copy the `lserver` executable elsewhere.
 
