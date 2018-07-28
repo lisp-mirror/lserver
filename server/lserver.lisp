@@ -175,3 +175,6 @@
   (if background
       (bt:make-thread (lambda () (start-server *server*)) :name "lserver main thread")
       (start-server *server*)))
+
+(defun lserver-homedir-pathname (&optional (server *server*))
+  (server-home server))
