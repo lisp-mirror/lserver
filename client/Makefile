@@ -1,2 +1,2 @@
 all:
-	gcc -Wall -std=c99 lclient.c -o lclient -lreadline
+	gcc -Wall -std=c99 interpreter.h interpreter.c lclient.c -o lclient -lreadline
