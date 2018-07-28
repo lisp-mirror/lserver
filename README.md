@@ -51,7 +51,7 @@ The system definition is found in the `server` directory.
 
 ## Installing the client
 
-### Prerequisites:
+### Prerequisites
 
 * `gcc`
 * `readline`
