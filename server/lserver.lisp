@@ -133,6 +133,7 @@
   (commands (make-hash-table :test 'equal)))
 
 (defvar *commands* (make-command-set))
+(defvar *server-commands* (make-command-set))
 
 (defun add-command (name function &optional description (commands *commands*))
   (check-type name string)
@@ -158,12 +159,30 @@
   (if arguments
       (let* ((command-name (first arguments))
              (args (rest arguments))
-             (command (get-command command-name)))
+             (command (or (get-command command-name)
+                          (get-command command-name *server-commands*))))
         (if command
             (funcall (command-function command) args)
             (error "Unknown command: ~A.~%" command-name)))
       (error "Command missing.~%")))
 
+(defun print-commands (&rest command-sets)
+  (let ((cmds (loop for command-set in command-sets
+                    append  (bt:with-lock-held ((command-set-lock command-set))
+                              (sort (loop for command being the hash-values of (command-set-commands command-set)
+                                          collect (list (command-name command) (command-description command)))
+                                    #'string<
+                                    :key #'first)))))
+    (let* ((max-command-length (loop for (name description) in cmds maximize (length name)))
+           (format-string (format nil "~~{~~{~~&~~A~~@[~~~DT~~A~~]~~%~~}~~}" (+ max-command-length 2))))
+      (format t format-string cmds))))
+
+(add-command "--list-commands" (lambda (args)
+                                 (declare (ignore args))
+                                 (print-commands *commands*)
+                                 t)
+             "List available commands"
+             *server-commands*)
 
 (defvar *server*)
 
