@@ -22,7 +22,10 @@
 (defmethod socket-address ((server lserver))
   (namestring (merge-pathnames  (socket-file server) (merge-pathnames #p"tmp/" (server-home server)))))
 
-(defun make-server (&key (home *lserver-home*) (socket-file *default-socket*))
+(defun make-server (&key (home (or (uiop:getenv "LSERVER_HOME")
+                                   *lserver-home*))
+                         (socket-file (or (uiop:getenv "LSERVER_SOCKET")
+                                          *default-socket*)))
   (make-instance 'lserver :home home :socket-file socket-file))
 
 (defun server-shutdown (server)
