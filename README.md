@@ -164,10 +164,9 @@ to update the commands.
 
 ## Writing software
 
-`lserver` is designed to allow the use of `lserver`-unaware function as the
-basis of its commands. When the command is executed, the function is applied to
-the list of provided command arguments in a dynamic environment with the
-following bindings:
+`lserver` commands can be defined on top of `lserver`-unaware functions.  When
+the command is executed, the associated function is applied to the list of
+provided command arguments with the following dynamic bindings:
 
 * `*standard-input*`, `*standard-output*`, and `*standard-error*` are
   identified with client’s standard streams;
