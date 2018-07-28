@@ -168,7 +168,7 @@
 
 (defvar *server*)
 
-(defun awesome (&key (background t) (socket-file *default-socket*) (home *lserver-home*))
+(defun run-server (&key background (socket-file *default-socket*) (home *lserver-home*))
   (setf *server* (setup-server (make-server :home home :socket-file socket-file)))
   (if background
       (bt:make-thread (lambda () (start-server *server*)) :name "lserver main thread")

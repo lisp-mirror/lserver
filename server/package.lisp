@@ -2,7 +2,9 @@
 
 (defpackage #:lserver
   (:use #:cl)
-  (:export #:add-command
+  (:export #:run-server
+           #:*server*
+           #:add-command
            #:remove-command))
 
 (defpackage #:lserver-impl
