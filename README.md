@@ -161,3 +161,21 @@ If you add new command files, you can run
     $ lcli eval '(commands-from-path)'
 
 to update the commands.
+
+## Writing software
+
+`lserver` is designed to allow the use of `lserver`-unaware function as the
+basis of its commands. When the command is executed, the function is applied to
+the list of provided command arguments in a dynamic environment with the
+following bindings:
+
+* `*standard-input*`, `*standard-output*`, and `*standard-error*` are
+  identified with client’s standard streams;
+* `*query-io*` corresponds to stdin and stderr;
+* `*default-pathname-defaults*` is client’s working directory,
+* `*package*` is the `LSERVER` package.
+
+The *exit code* is determined by the returned value: if the function returns an
+integer, it is used as the exit code, if the function returns a non-integer
+true value, the exit code is 0 and 1 otherwise.  If something goes wrong, the
+client dies with a nonzero exit code, so such codes are not quite reliable.
