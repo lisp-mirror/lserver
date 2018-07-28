@@ -73,8 +73,8 @@ int main(int argc, char **argv) {
     strcpy(servaddr.sun_path, socket_name);
 
     if (connect(s.fd, (struct sockaddr *) &servaddr, sizeof(servaddr))) {
-        perror("connect");
         fprintf(stderr, "Cannot connect to server on socket %s\n", socket_name);
+        perror("connect");
         return EXIT_FAILURE;
     }
 
