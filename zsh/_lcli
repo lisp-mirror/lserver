@@ -1,0 +1,23 @@
+#compdef lcli
+
+_lcli () {
+
+    local state context line expl ret=1
+    typeset -A opt_args
+    local tmp cmd
+
+    _arguments \
+        "1:Commands:(($(lcli --list-commands | sed -e 's/\s\+\(.*\)/\\:"\1"/')))" \
+        '*::command:->command' && ret=0
+
+    while [[ -n $state ]]; do
+        if (( CURRENT != 1)); then
+            state=
+            cmd="$words[1]"
+            curcontext="${curcontext%:*:*}:${cmd}:"
+            command -v _$cmd &>/dev/null && _$cmd && ret=0
+        fi
+    done
+
+    return ret
+}
