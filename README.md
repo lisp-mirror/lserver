@@ -1,83 +1,104 @@
 # lserver
 
-## Running the server
+## Using a standalone server executable
 
-### Using a standalone executable
-
-#### Build prerequisites
+### Build prerequisites
 
 * SBCL
 * [quicklisp](https://www.quicklisp.org/beta/)
 
-#### Building
+### Building and installing
 
 1. Download the tarball and unpack it under `~/quicklisp/local-projects`.
 
-        $ cd ~/quicklisp/local-projects; wget https://notabug.org/quasus/lserver/archive/master.tar.gz && tar xvf master.tar.gz
+        $ cd ~/quicklisp/local-projects; wget -O lserver.tar.gz https://notabug.org/quasus/lserver/archive/master.tar.gz && tar xvf lserver.tar.gz && cd lserver
 
-2. In the `server` directory, run `make`.
+2. As you are in the `lserver` directory, build the server and the client.
 
-        $ cd lserver/server; make
+        $ make
 
-3. Copy the `lserver` executable elsewhere.
+3. Install the server and client binaries.  You can specify a location by means of prefix, e. g.
 
-#### Running
+        $ make install prefix="$HOME/usr"
+
+will install both under `~/usr/bin/`.
+
+### Running
 
 By default, the home directory of the server is `$HOME/.lserver`.  This can be
 overridden by means of the `LSERVER_HOME` environment variable.
 
-When starting, `lserver` loads the configuration file `lserverrc.lisp`.  You
-should put something there in order for the server to be of any use (see
-[Configuring](#configuring)).
+The `LSERVER_SOCKET` variable overrides the socket name, which is `default` by
+default.
 
-### Using from Portacle
+##<a name=configuring> Using from Portacle
 
 Instead of building a standalone executable, you can install the portable
 Common Lisp development environment [Portacle](https://portacle.github.io/) and
 run the server from there.  This way you let Portacle take care of SBCL and
 quicklisp and moreover, you get live introspection and hacking with Slime.
 
+In this case you don’t need to build the server.
+
+### Installation
+
 1. Install [Portacle](https://portacle.github.io/).
 
 2. `cd` into the Portacle directory.
 
-3. Download the tarball and unpack it under `quicklisp/local-projects`. 
+3. Download the tarball and unpack it under `quicklisp/local-projects`:
 
-    $ cd all/quicklisp/local-projects; wget https://notabug.org/quasus/lserver/archive/master.tar.gz && tar xvf master.tar.gz
+        $ cd all/quicklisp/local-projects; wget -O lserver.tar.gz https://notabug.org/quasus/lserver/archive/master.tar.gz && tar xvf lserver.tar.gz && cd lserver
+
+4. Build and install the client:
+
+        $ cd client
+        $ make
+        $ make install prefix=”$HOME/usr”
+
+   Of course, you can use a different prefix or no prefix altogether if you
+   install it under `/usr/local`.
+
+### Running
+
+To run the server, start Portacle, load `lserver` by writing
+
+        CL-USER> (ql:quickload "lserver")
+
+at the prompt.  When you do this for the first time, `quicklisp` will fetch
+dependencies, so you will need an internet connection.  Then run the server by
+calling
+
+        CL-USER> (lserver:run-server :background t)
+
+You can specify an alternative home directory and/or socket name like this:
+
+        CL-USER> (lserver:run-server :background t :home "~/alternative-home" :socket "mysock")
+
 
 ### Using from a Lisp environment
 
-The system definition is found in the `server` directory.
+The system definition is found in the `server` directory.  You build the client
+and run the server as explained in the section [Using from
+Portacle](#portacle).
 
-## Installing the client
+## Client
 
-### Prerequisites
-
-* `gcc`
-* `readline`
-
-### Building
-1. `cd` to `lserver/client`.
-2. Run `make`.
-3. Copy the `lcli` executable elsewhere.
-
-### Usage
-
-    $ lcli --list-commands
-    $ lcli [command] [command-arguments]
+        $ lcli --list-commands
+        $ lcli [command] [command-arguments]
 
 * `command` is the name of the piece of software to run.
 * `command-arguments` are CLI options for the command. 
 
 ## <a name=configuring>Configuring
 
-Individual pieces of Lisp software are represented by the `lserver`-specific
-concept of *commands*.  `lserver` knows no commands out of the box and must be
-configured using the configuration file.
+No commands are defined out of the box, so the server must be configured in
+order to be of any use.  You do that by editing the `lserverrc.lisp` file
+residing in the home directory.
 
-The configuration file `lserverrc.lisp` residing in the `lserver` home
-directory is a regular Lisp file.  Single-line comments start with a semicolon
-and multi-line comments go between `#|` and `|#`.
+The `lserverrc.lisp` file is a regular Lisp file loaded when the server starts.
+Single-line comments start with a semicolon and multi-line comments go between
+`#|` and `|#`.
 
 You can use the `add-command` function to directly define commands in the
 configuration file.  Here is a small configuration:
@@ -110,7 +131,9 @@ optionally print the results, e. g.
     $ lcli say '(+ 1 2)'
     3
 
-If you want to define commands in individual files, you can use the following code:
+Of course, you don’t want that if `lserver` is to be used as a system-wide daemon.
+
+If you want to define commands in individual files, you can use the following setup:
 
     (defun file-command (function &optional description)
       (add-command (pathname-name *load-truename*) function description))
@@ -125,10 +148,9 @@ If you want to define commands in individual files, you can use the following co
 
     (commands-from-path)
 
-Then instead of defining the `eval` and `say` commands in the configuration
-file itself, you can create the following files `eval.lisp` and `say.lisp`
-under the `commands` subdirectory:
-
+Instead of defining the `eval` and `say` commands directly in the configuration
+file, you can create the following files `eval.lisp` and `say.lisp` under the
+`commands` subdirectory:
 
     ;;;; eval.lisp
 
@@ -156,11 +178,11 @@ under the `commands` subdirectory:
 
 Observe that `file-command` names commands after files, so you can easily rename commands by just renaming files.
 
-If you add new command files, you can run
+If you add new command files while the server is running, you can run
 
     $ lcli eval '(commands-from-path)'
 
-to update the commands.
+for a live update.
 
 ## Writing software
 
