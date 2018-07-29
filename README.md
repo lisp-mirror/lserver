@@ -31,7 +31,7 @@ overridden by means of the `LSERVER_HOME` environment variable.
 The `LSERVER_SOCKET` variable overrides the socket name, which is `default` by
 default.
 
-##<a name=configuring> Using from Portacle
+## <a name=configuring>Using from Portacle
 
 Instead of building a standalone executable, you can install the portable
 Common Lisp development environment [Portacle](https://portacle.github.io/) and
