@@ -187,9 +187,9 @@
 (defvar *server*)
 
 (defun run-server (&key background
-                        (socket-file (or (uiop:getenv "LSERVER_SOCKET") *default-socket*))
+                        (socket (or (uiop:getenv "LSERVER_SOCKET") *default-socket*))
                         (home (or (uiop:getenv "LSERVER_HOME") *lserver-home*)))
-  (setf *server* (make-server :home home :socket-file socket-file))
+  (setf *server* (make-server :home home :socket-file socket))
   (setup-server *server*)
   (format t "Starting listening on ~A.~%" (socket-address *server*))
   (if background
