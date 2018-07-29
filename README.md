@@ -54,7 +54,7 @@ In this case you don’t need to build the server.
 
         $ cd client
         $ make
-        $ make install prefix=”$HOME/usr”
+        $ make install prefix="$HOME/usr"
 
    Of course, you can use a different prefix or no prefix altogether if you
    install it under `/usr/local`.
