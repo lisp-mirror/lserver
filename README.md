@@ -31,7 +31,7 @@ overridden by means of the `LSERVER_HOME` environment variable.
 The `LSERVER_SOCKET` variable overrides the socket name, which is `default` by
 default.
 
-## <a name=portacle>Using from Portacle
+## <a name=portacle></a>Using from Portacle
 
 Instead of building a standalone executable, you can install the portable
 Common Lisp development environment [Portacle](https://portacle.github.io/) and
@@ -89,7 +89,7 @@ and run the server as explained in the section [Using from Portacle](#portacle).
 * `command` is the name of the piece of software to run.
 * `command-arguments` are CLI options for the command. 
 
-## <a name=configuring>Configuring
+## Configuring
 
 No commands are defined out of the box, so the server must be configured in
 order to be of any use.  You do that by editing the `lserverrc.lisp` file
