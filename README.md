@@ -95,6 +95,12 @@ No commands are defined out of the box, so the server must be configured in
 order to be of any use.  You do that by editing the `lserverrc.lisp` file
 residing in the server home directory.
 
+You can run the `quick-setup.sh` script in order to obtain a simple file-based
+command system described below together with the `eval` and `say` commands.
+This doesn’t mean that this is the preferable way of managing commands, that
+the `eval` and `say` commands must be generally available or that
+`lserver::file-command` is an ‘official’ way of distributing software.
+
 The `lserverrc.lisp` file is a regular Lisp file loaded when the server starts.
 Single-line comments start with a semicolon and multi-line comments go between
 `#|` and `|#`.
@@ -160,7 +166,7 @@ file, you can create the following files `eval.lisp` and `say.lisp` under the
                       (eval (with-standard-io-syntax
                               (let ((*package* (find-package "LSERVER")))
                                 (read-from-string arg))))))
-                  "Eval arguments as Lisp forms.")
+                  "Evaluate arguments as Lisp forms.")
 
 
     ;;;; say.lisp
