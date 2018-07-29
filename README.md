@@ -93,7 +93,7 @@ and run the server as explained in the section [Using from Portacle](#portacle).
 
 No commands are defined out of the box, so the server must be configured in
 order to be of any use.  You do that by editing the `lserverrc.lisp` file
-residing in the home directory.
+residing in the server home directory.
 
 The `lserverrc.lisp` file is a regular Lisp file loaded when the server starts.
 Single-line comments start with a semicolon and multi-line comments go between
