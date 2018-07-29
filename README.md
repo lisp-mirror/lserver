@@ -4,7 +4,7 @@
 
 ### Build prerequisites
 
-* SBCL
+* [SBCL](http://sbcl.org)
 * [quicklisp](https://www.quicklisp.org/beta/)
 
 ### Building and installing
