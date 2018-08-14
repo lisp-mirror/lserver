@@ -2,22 +2,20 @@
 
 _lcli () {
 
-    local state context line expl ret=1
-    typeset -A opt_args
-    local tmp cmd
+  local state context line expl ret=1
+  typeset -A opt_args
+  local tmp cmd
 
-    _arguments \
-        "1:Commands:(($(lcli --list-commands | sed -e 's/\s\+\(.*\)/\\:"\1"/')))" \
-        '*::command:->command' && ret=0
+  _arguments \
+    "1:commands:(($(lcli --list-commands | sed -e 's/\s\+\(.*\)/\\:"\1"/')))" \
+    '*:: :->command'
 
-    while [[ -n $state ]]; do
-        if (( CURRENT != 1)); then
-            state=
-            cmd="$words[1]"
-            curcontext="${curcontext%:*:*}:${cmd}:"
-            command -v _$cmd &>/dev/null && _$cmd && ret=0
-        fi
-    done
+  if [[ -z $state ]]; then
+    ret=0
+  else
+    words[1]=lcli_$words[1]
+    _normal && ret=0
+  fi
 
-    return ret
+  return ret
 }
