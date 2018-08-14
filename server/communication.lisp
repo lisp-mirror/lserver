@@ -249,7 +249,7 @@ for simplicity we flush every time we dump
           (:stderr
             (dump-to-stderr-c)
             (flush-stderr-c)))
-        (loop for i from (1- dump-end) below (length buffer)
+        (loop for i from dump-end below (length buffer)
               for j from 0
               do (setf (aref buffer j) (aref buffer i)))
         (setf (fill-pointer buffer) (- (length buffer) dump-end))))))
