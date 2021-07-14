@@ -121,7 +121,7 @@
   (ensure-directories-exist (pathname file))
   (uiop:delete-file-if-exists file)
   (let ((socket (make-instance 'sb-bsd-sockets:local-socket :type :stream)))
-    (sb-bsd-sockets:socket-bind socket file)
+    (sb-bsd-sockets:socket-bind socket (uiop:native-namestring file))
     (sb-bsd-sockets:socket-listen socket 5)
     socket))
 
