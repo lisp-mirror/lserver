@@ -11,13 +11,14 @@ cat << EOF >> "$LSERVER_HOME/lserverrc.lisp"
 (defun file-command (function &optional description)
   (add-command (pathname-name *load-truename*) function description))
 
-(defvar *path* (list (merge-pathnames #p"commands/" (lserver-homedir-pathname))))
+(defparameter *path* (list (merge-pathnames #p"commands/*.lisp" (lserver-homedir-pathname))))
 
 (defun commands-from-path ()
-  (dolist (directory *path*)
-    (dolist (file (uiop:directory-files directory "*.lisp"))
-      (let ((*package* (find-package "LSERVER")))
-        (load file)))))
+  (dolist (glob *path*)
+    (dolist (pathname (directory glob))
+      (with-standard-io-syntax
+        (let ((*package* (find-package "LSERVER")))
+          (load pathname))))))
 
 (commands-from-path)
 EOF
